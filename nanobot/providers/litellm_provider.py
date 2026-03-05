@@ -265,6 +265,9 @@ class LiteLLMProvider(LLMProvider):
         resolved_model = self._resolve_model(original_model)
         extra_msg_keys = self._extra_msg_keys(original_model, resolved_model)
 
+        if self._supports_cache_control(original_model):
+            messages, tools = self._apply_cache_control(messages, tools)
+
         sanitized_messages = self._sanitize_messages(
             self._sanitize_empty_content(messages), extra_keys=extra_msg_keys
         )
@@ -290,7 +293,9 @@ class LiteLLMProvider(LLMProvider):
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort
             kwargs["drop_params"] = True
-        # Stream mode: do not pass tools (final-reply-only streaming, no tool calls)
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
 
         try:
             response = await acompletion(**kwargs)

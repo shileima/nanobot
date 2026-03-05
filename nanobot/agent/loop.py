@@ -248,12 +248,12 @@ class AgentLoop:
 
                 if on_token:
                     # Stream the final reply token-by-token via chat_stream().
-                    # We already know there are no tool calls this round, so pass
-                    # tools=None to keep the request lean.
+                    # Must pass tools= if the message history contains prior tool_calls,
+                    # otherwise Anthropic rejects the request with UnsupportedParamsError.
                     streamed = []
                     async for chunk in self.provider.chat_stream(
                         messages=messages,
-                        tools=None,
+                        tools=self.tools.get_definitions(),
                         model=self.model,
                         temperature=self.temperature,
                         max_tokens=self.max_tokens,
