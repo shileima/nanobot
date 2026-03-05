@@ -60,6 +60,14 @@ def _build_app(
                     raise asyncio.CancelledError()
                 q.put(("token", chunk))
 
+            async def on_progress(content: str, *, tool_hint: bool = False, full_content: str | None = None) -> None:
+                if cancel_event.is_set():
+                    return
+                payload = {"content": content, "tool_hint": tool_hint}
+                if full_content:
+                    payload["full_content"] = full_content
+                q.put(("progress", payload))
+
             try:
                 await agent.process_direct(
                     message,
@@ -67,6 +75,7 @@ def _build_app(
                     channel="webchat",
                     chat_id=session_id,
                     on_token=on_token,
+                    on_progress=on_progress,
                 )
             except asyncio.CancelledError:
                 pass
@@ -79,17 +88,31 @@ def _build_app(
         active_tasks[session_id] = future
 
         def generate():
+            # Short poll interval: check queue every 30 s and emit a keep-alive
+            # comment so proxies / browsers don't close the connection.
+            # Total idle limit before giving up: 600 s (10 minutes).
+            POLL_INTERVAL = 30
+            MAX_IDLE = 600
+            idle_elapsed = 0
             try:
                 while True:
                     try:
-                        kind, payload = q.get(timeout=90)
+                        kind, payload = q.get(timeout=POLL_INTERVAL)
+                        idle_elapsed = 0  # reset on activity
                     except queue.Empty:
-                        # Client likely gone; send timeout error and stop.
-                        yield f"data: {json.dumps({'error': 'timeout', 'session_id': session_id})}\n\n"
-                        break
+                        idle_elapsed += POLL_INTERVAL
+                        if idle_elapsed >= MAX_IDLE:
+                            # Truly timed out after MAX_IDLE seconds of silence.
+                            yield f"data: {json.dumps({'error': 'timeout', 'session_id': session_id})}\n\n"
+                            break
+                        # Send SSE keep-alive comment to prevent proxy/browser disconnect.
+                        yield ": keep-alive\n\n"
+                        continue
 
                     if kind == "token":
                         yield f"data: {json.dumps({'chunk': payload, 'session_id': session_id})}\n\n"
+                    elif kind == "progress":
+                        yield f"data: {json.dumps({'progress': payload, 'session_id': session_id})}\n\n"
                     elif kind == "done":
                         yield f"data: {json.dumps({'done': True, 'session_id': session_id})}\n\n"
                         break

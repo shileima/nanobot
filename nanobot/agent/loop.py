@@ -167,15 +167,30 @@ class AgentLoop:
         return re.sub(r"<think>[\s\S]*?</think>", "", text).strip() or None
 
     @staticmethod
-    def _tool_hint(tool_calls: list) -> str:
-        """Format tool calls as concise hint, e.g. 'web_search("query")'."""
-        def _fmt(tc):
+    def _tool_hint(tool_calls: list) -> tuple[str, str | None]:
+        """Format tool calls as concise hint + optional full version.
+
+        Returns (short_hint, full_hint_or_None).
+        full_hint is only set when the short version was truncated.
+        """
+        short_parts, full_parts = [], []
+        truncated = False
+        for tc in tool_calls:
             args = (tc.arguments[0] if isinstance(tc.arguments, list) else tc.arguments) or {}
             val = next(iter(args.values()), None) if isinstance(args, dict) else None
             if not isinstance(val, str):
-                return tc.name
-            return f'{tc.name}("{val[:40]}…")' if len(val) > 40 else f'{tc.name}("{val}")'
-        return ", ".join(_fmt(tc) for tc in tool_calls)
+                short_parts.append(tc.name)
+                full_parts.append(tc.name)
+            elif len(val) > 200:
+                truncated = True
+                short_parts.append(f'{tc.name}("{val[:200]}…")')
+                full_parts.append(f'{tc.name}("{val}")')
+            else:
+                short_parts.append(f'{tc.name}("{val}")')
+                full_parts.append(f'{tc.name}("{val}")')
+        short = ", ".join(short_parts)
+        full = ", ".join(full_parts) if truncated else None
+        return short, full
 
     async def _run_agent_loop(
         self,
@@ -206,11 +221,10 @@ class AgentLoop:
             )
 
             if response.has_tool_calls:
+                progress_text = self._strip_think(response.content) if on_progress else None
                 if on_progress:
-                    clean = self._strip_think(response.content)
-                    if clean:
-                        await on_progress(clean)
-                    await on_progress(self._tool_hint(response.tool_calls), tool_hint=True)
+                    short, full = self._tool_hint(response.tool_calls)
+                    await on_progress(short, tool_hint=True, full_content=full)
 
                 tool_call_dicts = [
                     {
@@ -237,6 +251,9 @@ class AgentLoop:
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
+
+                if on_progress and progress_text:
+                    await on_progress(progress_text)
             else:
                 # Don't persist error responses to session history — they can
                 # poison the context and cause permanent 400 loops (#1303).
@@ -450,10 +467,12 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id,
         )
 
-        async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
+        async def _bus_progress(content: str, *, tool_hint: bool = False, full_content: str | None = None) -> None:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
+            if full_content:
+                meta["_full_content"] = full_content
             await self.bus.publish_outbound(OutboundMessage(
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))

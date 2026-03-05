@@ -132,6 +132,87 @@
             display: inline-block;
         }
 
+        /* progress (thinking / tool calls) shown during long tasks */
+        .progress-bubble {
+            font-size: 13px; color: #666;
+            background: #f7f8fc;
+            border: 1px dashed #d0d3e8;
+            border-radius: 12px;
+            padding: 7px 13px;
+            margin: 2px 0 4px;
+            display: flex; align-items: flex-start; gap: 7px;
+            position: relative;
+        }
+        .progress-bubble.active {
+            border-color: transparent;
+            animation: breathe-shadow 2s ease-in-out infinite;
+        }
+        .progress-bubble.active > .dash-border {
+            position: absolute; inset: 0; pointer-events: none;
+            border-radius: 12px; overflow: visible;
+        }
+        .progress-bubble.active > .dash-border rect {
+            fill: none;
+            stroke: #a0aee6;
+            stroke-width: 1;
+            stroke-dasharray: 6 4;
+            stroke-linecap: round;
+            animation: march 2.5s linear infinite, stroke-breathe 3s ease-in-out infinite;
+        }
+        @keyframes march { to { stroke-dashoffset: -20; } }
+        @keyframes stroke-breathe {
+            0%, 100% { stroke: #b0bae8; stroke-opacity: .5; }
+            50% { stroke: #c4b5f0; stroke-opacity: .85; }
+        }
+        @keyframes breathe-shadow {
+            0%, 100% { box-shadow: 0 0 0 rgba(102,126,234,0); }
+            50% { box-shadow: 0 0 5px rgba(102,126,234,.1); }
+        }
+        #progressWrap .bubble-wrap { max-width: 96%; }
+        .progress-bubble .progress-icon {
+            flex-shrink: 0; line-height: 1.6;
+            display: inline-block;
+            transition: filter .3s;
+        }
+        .progress-bubble.active .progress-icon {
+            animation: spin 1.2s linear infinite;
+            filter: drop-shadow(0 0 4px rgba(102,126,234,.6));
+        }
+        .progress-bubble:not(.active) .progress-icon {
+            opacity: .55;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .progress-bubble .progress-text {
+            flex: 1; min-width: 0;
+            word-break: break-all;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.6;
+        }
+        .progress-bubble .progress-full {
+            display: none;
+            word-break: break-all;
+            white-space: normal;
+        }
+        .progress-bubble.expanded .progress-text {
+            white-space: normal;
+            overflow: visible;
+            text-overflow: unset;
+        }
+        .progress-bubble.expanded .progress-full { display: inline; }
+        .progress-bubble.expanded .progress-short { display: none; }
+        .expand-btn {
+            background: none; border: none; color: #667eea;
+            font-size: 11.5px; cursor: pointer; padding: 0;
+            margin-left: 4px; white-space: nowrap;
+            flex-shrink: 0; align-self: center; line-height: 1.6;
+        }
+        .expand-btn:hover { text-decoration: underline; }
+
         .chat-input-area {
             padding: 14px 18px;
             background: #fff;
@@ -152,9 +233,12 @@
             transition: border-color .22s;
             max-height: 120px;
             overflow-y: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
             line-height: 1.5;
             font-family: inherit;
         }
+        #messageInput::-webkit-scrollbar { display: none; }
         #messageInput:focus { border-color: #667eea; }
 
         .send-btn {
@@ -205,13 +289,23 @@
         }
 
         /* cursor blink for streaming */
-        .streaming-cursor::after {
+        .streaming-cursor:not(:empty)::after {
             content: "▋";
             animation: blink .7s infinite;
             color: #667eea;
             font-size: 13px;
         }
+        .streaming-cursor:empty::after {
+            content: "正在执行中...";
+            color: #aaa;
+            font-size: 13px;
+            animation: executing-pulse 1.8s ease-in-out infinite;
+        }
         @keyframes blink { 0%,50%{opacity:1}51%,100%{opacity:0} }
+        @keyframes executing-pulse {
+            0%,100% { opacity: .4; }
+            50% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -298,6 +392,65 @@
         document.getElementById('typingMsg')?.remove();
     }
 
+    /** Create or update the progress area above the streaming bubble. */
+    let progressWrap = null;
+
+    function showProgress(content, isToolHint, fullContent) {
+        if (!progressWrap) {
+            progressWrap = document.createElement('div');
+            progressWrap.className = 'message assistant';
+            progressWrap.id = 'progressWrap';
+            progressWrap.innerHTML = '<div class="bubble-wrap" id="progressBubbleWrap"></div>';
+            const typing = document.getElementById('typingMsg');
+            if (typing) chatEl.insertBefore(progressWrap, typing);
+            else chatEl.appendChild(progressWrap);
+        }
+        const bw = progressWrap.querySelector('#progressBubbleWrap');
+        const icon = isToolHint ? '⚙️' : '💭';
+        const item = document.createElement('div');
+        item.className = 'progress-bubble';
+
+        let html = `<span class="progress-icon">${icon}</span>`;
+        if (fullContent) {
+            html += `<span class="progress-text"><span class="progress-short">${esc(content)}</span><span class="progress-full">${esc(fullContent)}</span></span>`;
+            html += `<button class="expand-btn" onclick="this.parentElement.classList.toggle('expanded');this.textContent=this.parentElement.classList.contains('expanded')?'收起':'更多'">更多</button>`;
+        } else {
+            html += `<span class="progress-text">${esc(content)}</span>`;
+        }
+        item.innerHTML = html;
+        // Deactivate previous: remove class and SVG
+        const prev = bw.querySelector('.progress-bubble.active');
+        if (prev) { prev.classList.remove('active'); prev.querySelector('.dash-border')?.remove(); }
+        item.classList.add('active');
+        // Inject SVG dashed border (animated via CSS)
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'dash-border');
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', '100%');
+        svg.innerHTML = '<rect x="0.6" y="0.6" width="calc(100% - 1.2px)" height="calc(100% - 1.2px)" rx="12" ry="12"/>';
+        item.appendChild(svg);
+        bw.appendChild(item);
+        // Fix SVG rect size after layout
+        requestAnimationFrame(() => {
+            const r = svg.querySelector('rect');
+            if (r && svg.clientWidth) {
+                r.setAttribute('width', svg.clientWidth - 1.2);
+                r.setAttribute('height', svg.clientHeight - 1.2);
+            }
+        });
+        scrollBottom();
+    }
+
+    function clearProgress() {
+        if (!progressWrap) return;
+        const active = progressWrap.querySelector('.progress-bubble.active');
+        if (active) {
+            active.classList.remove('active');
+            active.querySelector('.dash-border')?.remove();
+        }
+        progressWrap = null;
+    }
+
     /** Create an empty streaming assistant bubble; returns the text node to append into. */
     function createStreamingBubble() {
         const wrap = document.createElement('div');
@@ -375,22 +528,18 @@
                 const decoder = new TextDecoder();
                 let buf = '';
 
-                removeTypingIndicator();
-                wrap = createStreamingBubble();
-                const bubble = wrap.querySelector('#streamBubble');
+                let bubble = null;
 
                 while (true) {
                     let result;
                     try {
                         result = await reader.read();
                     } catch (readErr) {
-                        // Network interrupted mid-stream
                         if (retries < MAX_RETRIES && !stopRequested) {
                             retries++;
                             console.warn(`Stream interrupted, retry ${retries}/${MAX_RETRIES}…`);
-                            // Remove incomplete bubble and retry
-                            finalizeStreamingBubble(wrap, false);
-                            wrap = null; hadContent = false;
+                            if (wrap) finalizeStreamingBubble(wrap, false);
+                            wrap = null; bubble = null; hadContent = false;
                             addTypingIndicator();
                             await doStream(retrySessionId);
                             return;
@@ -402,9 +551,10 @@
 
                     buf += decoder.decode(result.value, { stream: true });
                     const lines = buf.split('\n');
-                    buf = lines.pop(); // keep incomplete last line
+                    buf = lines.pop();
 
                     for (const line of lines) {
+                        if (line.startsWith(':')) continue;
                         if (!line.startsWith('data:')) continue;
                         const raw = line.slice(5).trim();
                         if (!raw) continue;
@@ -412,14 +562,28 @@
                         let data;
                         try { data = JSON.parse(raw); } catch { continue; }
 
+                        if (data.progress) {
+                            removeTypingIndicator();
+                            showProgress(data.progress.content, data.progress.tool_hint, data.progress.full_content);
+                        }
                         if (data.chunk) {
+                            removeTypingIndicator();
+                            if (!bubble) {
+                                wrap = createStreamingBubble();
+                                bubble = wrap.querySelector('#streamBubble');
+                            }
+                            clearProgress();
                             hadContent = true;
                             bubble.textContent += data.chunk;
                             scrollBottom();
                         }
                         if (data.error) {
-                            finalizeStreamingBubble(wrap, hadContent);
-                            addErrorMessage(data.error);
+                            removeTypingIndicator();
+                            if (wrap) finalizeStreamingBubble(wrap, hadContent);
+                            const msg = data.error === 'timeout'
+                                ? '任务执行超时（超过 10 分钟无响应），请重试或拆分为更小的任务'
+                                : data.error;
+                            addErrorMessage(msg);
                             return;
                         }
                         if (data.done) {
@@ -454,6 +618,7 @@
                 addErrorMessage('网络错误，请检查连接：' + err.message);
             }
         } finally {
+            clearProgress();
             if (wrap) finalizeStreamingBubble(wrap, hadContent);
             removeTypingIndicator();
             currentReader = null;
