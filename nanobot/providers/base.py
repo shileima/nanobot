@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, AsyncGenerator
 
 
 @dataclass
@@ -111,6 +111,23 @@ class LLMProvider(ABC):
             LLMResponse with content and/or tool calls.
         """
         pass
+
+    async def chat_stream(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        reasoning_effort: str | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """Stream a chat completion, yielding text chunks as they arrive.
+
+        Default implementation wraps chat() and yields the full response at once.
+        Subclasses should override to enable true token-level streaming.
+        """
+        result = await self.chat(messages, tools, model, max_tokens, temperature, reasoning_effort)
+        yield result.content or ""
 
     @abstractmethod
     def get_default_model(self) -> str:

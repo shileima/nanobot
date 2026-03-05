@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🐈 nanobot Web Chat</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 860px;
+            height: 92vh;
+            background: #fff;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .chat-header h1 { font-size: 18px; font-weight: 700; flex: 1; }
+        .status-dot {
+            width: 9px; height: 9px; border-radius: 50%;
+            background: #4ade80;
+            box-shadow: 0 0 6px #4ade80;
+            animation: pulse 2s infinite;
+            flex-shrink: 0;
+        }
+        @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.5} }
+
+        .header-btn {
+            background: rgba(255,255,255,.18);
+            border: 1px solid rgba(255,255,255,.35);
+            color: #fff;
+            padding: 5px 13px;
+            border-radius: 14px;
+            font-size: 12.5px;
+            cursor: pointer;
+            transition: background .2s;
+            white-space: nowrap;
+        }
+        .header-btn:hover { background: rgba(255,255,255,.32); }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 18px 20px;
+            background: #f8f9fb;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message { display: flex; animation: fadeIn .22s ease; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)} }
+        .message.user      { justify-content: flex-end; }
+        .message.assistant { justify-content: flex-start; }
+
+        .bubble-wrap { max-width: 74%; display: flex; flex-direction: column; }
+        .message.user .bubble-wrap { align-items: flex-end; }
+
+        .bubble {
+            padding: 11px 16px;
+            border-radius: 18px;
+            word-break: break-word;
+            white-space: pre-wrap;
+            line-height: 1.6;
+            font-size: 14.5px;
+        }
+        .message.user .bubble {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+        .message.assistant .bubble {
+            background: #fff;
+            color: #333;
+            border: 1px solid #e4e6ea;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 1px 4px rgba(0,0,0,.06);
+        }
+        .bubble-time {
+            font-size: 11px;
+            color: #bbb;
+            margin-top: 4px;
+            padding: 0 4px;
+        }
+
+        /* typing indicator */
+        .typing-bubble {
+            display: flex; align-items: center; gap: 5px;
+            background: #fff; border: 1px solid #e4e6ea;
+            border-radius: 18px; border-bottom-left-radius: 4px;
+            padding: 12px 16px;
+            box-shadow: 0 1px 4px rgba(0,0,0,.06);
+        }
+        .typing-bubble span {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: #667eea;
+            animation: bounce 1.3s infinite;
+            display: inline-block;
+        }
+        .typing-bubble span:nth-child(2) { animation-delay: .15s; }
+        .typing-bubble span:nth-child(3) { animation-delay: .30s; }
+        @keyframes bounce { 0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)} }
+
+        /* tool hint pill */
+        .tool-hint {
+            font-size: 12px; color: #888;
+            background: #f0f0f5; border-radius: 10px;
+            padding: 3px 10px; margin-top: 4px;
+            display: inline-block;
+        }
+
+        .chat-input-area {
+            padding: 14px 18px;
+            background: #fff;
+            border-top: 1px solid #eaeaea;
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+            flex-shrink: 0;
+        }
+        #messageInput {
+            flex: 1;
+            padding: 10px 16px;
+            border: 2px solid #e4e6ea;
+            border-radius: 22px;
+            font-size: 14.5px;
+            outline: none;
+            resize: none;
+            transition: border-color .22s;
+            max-height: 120px;
+            overflow-y: auto;
+            line-height: 1.5;
+            font-family: inherit;
+        }
+        #messageInput:focus { border-color: #667eea; }
+
+        .send-btn {
+            padding: 10px 22px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border: none;
+            border-radius: 22px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform .15s, box-shadow .15s, opacity .15s;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .send-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 14px rgba(102,126,234,.45);
+        }
+        .send-btn:active:not(:disabled) { transform: translateY(0); }
+        .send-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+        #stopBtn {
+            padding: 10px 18px;
+            background: #fff;
+            color: #e53e3e;
+            border: 2px solid #e53e3e;
+            border-radius: 22px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background .15s;
+            white-space: nowrap;
+            flex-shrink: 0;
+            display: none;
+        }
+        #stopBtn:hover { background: #fff5f5; }
+
+        /* scrollbar */
+        .chat-messages::-webkit-scrollbar { width: 5px; }
+        .chat-messages::-webkit-scrollbar-track { background: transparent; }
+        .chat-messages::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+
+        .error-bubble .bubble {
+            background: #fff5f5;
+            color: #c53030;
+            border-color: #fed7d7;
+        }
+
+        /* cursor blink for streaming */
+        .streaming-cursor::after {
+            content: "▋";
+            animation: blink .7s infinite;
+            color: #667eea;
+            font-size: 13px;
+        }
+        @keyframes blink { 0%,50%{opacity:1}51%,100%{opacity:0} }
+    </style>
+</head>
+<body>
+<div class="chat-container">
+    <div class="chat-header">
+        <div class="status-dot"></div>
+        <h1>🐈 nanobot Web Chat</h1>
+        <button class="header-btn" id="newChatBtn">新对话</button>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+        <div class="message assistant">
+            <div class="bubble-wrap">
+                <div class="bubble">你好！我是 nanobot 🐈，你的个人 AI 助手。有什么可以帮你的吗？</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chat-input-area">
+        <textarea id="messageInput" rows="1"
+            placeholder="输入消息… (Enter 发送，Shift+Enter 换行)"></textarea>
+        <button id="stopBtn">停止</button>
+        <button class="send-btn" id="sendButton">发送</button>
+    </div>
+</div>
+
+<script>
+    const chatEl   = document.getElementById('chatMessages');
+    const inputEl  = document.getElementById('messageInput');
+    const sendBtn  = document.getElementById('sendButton');
+    const stopBtn  = document.getElementById('stopBtn');
+    const newChatBtn = document.getElementById('newChatBtn');
+
+    let sessionId = makeSessionId();
+    let currentReader = null;   // active ReadableStream reader
+    let isStreaming   = false;
+
+    // ── Utilities ────────────────────────────────────────────────────────────
+
+    function makeSessionId() {
+        return 'web:' + Math.random().toString(36).slice(2, 11);
+    }
+
+    function timeStr() {
+        return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function esc(text) {
+        const d = document.createElement('div');
+        d.textContent = text;
+        return d.innerHTML;
+    }
+
+    function scrollBottom() {
+        chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    // ── Message rendering ─────────────────────────────────────────────────────
+
+    function addUserMessage(text) {
+        const el = document.createElement('div');
+        el.className = 'message user';
+        el.innerHTML = `<div class="bubble-wrap">
+            <div class="bubble">${esc(text)}</div>
+            <div class="bubble-time">${timeStr()}</div>
+        </div>`;
+        chatEl.appendChild(el);
+        scrollBottom();
+    }
+
+    function addTypingIndicator() {
+        const el = document.createElement('div');
+        el.className = 'message assistant';
+        el.id = 'typingMsg';
+        el.innerHTML = `<div class="bubble-wrap">
+            <div class="typing-bubble"><span></span><span></span><span></span></div>
+        </div>`;
+        chatEl.appendChild(el);
+        scrollBottom();
+        return el;
+    }
+
+    function removeTypingIndicator() {
+        document.getElementById('typingMsg')?.remove();
+    }
+
+    /** Create an empty streaming assistant bubble; returns the text node to append into. */
+    function createStreamingBubble() {
+        const wrap = document.createElement('div');
+        wrap.className = 'message assistant';
+        wrap.innerHTML = `<div class="bubble-wrap">
+            <div class="bubble streaming-cursor" id="streamBubble"></div>
+            <div class="bubble-time" id="streamTime">${timeStr()}</div>
+        </div>`;
+        chatEl.appendChild(wrap);
+        scrollBottom();
+        return wrap;
+    }
+
+    function finalizeStreamingBubble(wrap, hadContent) {
+        const bubble = wrap.querySelector('#streamBubble');
+        if (bubble) {
+            bubble.classList.remove('streaming-cursor');
+            bubble.removeAttribute('id');
+        }
+        const timeEl = wrap.querySelector('#streamTime');
+        if (timeEl) timeEl.removeAttribute('id');
+        if (!hadContent) wrap.remove();
+    }
+
+    function addErrorMessage(text) {
+        const el = document.createElement('div');
+        el.className = 'message assistant error-bubble';
+        el.innerHTML = `<div class="bubble-wrap">
+            <div class="bubble">${esc('⚠ ' + text)}</div>
+            <div class="bubble-time">${timeStr()}</div>
+        </div>`;
+        chatEl.appendChild(el);
+        scrollBottom();
+    }
+
+    // ── Send / stream ─────────────────────────────────────────────────────────
+
+    function setStreaming(v) {
+        isStreaming = v;
+        sendBtn.disabled = v;
+        inputEl.disabled = v;
+        stopBtn.style.display = v ? 'inline-block' : 'none';
+    }
+
+    async function sendMessage() {
+        const text = inputEl.value.trim();
+        if (!text || isStreaming) return;
+
+        inputEl.value = '';
+        inputEl.style.height = 'auto';
+        setStreaming(true);
+
+        addUserMessage(text);
+        addTypingIndicator();
+
+        let wrap = null;
+        let hadContent = false;
+        let retries = 0;
+        const MAX_RETRIES = 2;
+
+        async function doStream(retrySessionId) {
+            try {
+                const resp = await fetch('/api/chat/stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text, session_id: retrySessionId }),
+                });
+
+                if (!resp.ok) {
+                    throw new Error(`HTTP ${resp.status}`);
+                }
+
+                const reader = resp.body.getReader();
+                currentReader = reader;
+                const decoder = new TextDecoder();
+                let buf = '';
+
+                removeTypingIndicator();
+                wrap = createStreamingBubble();
+                const bubble = wrap.querySelector('#streamBubble');
+
+                while (true) {
+                    let result;
+                    try {
+                        result = await reader.read();
+                    } catch (readErr) {
+                        // Network interrupted mid-stream
+                        if (retries < MAX_RETRIES && !stopRequested) {
+                            retries++;
+                            console.warn(`Stream interrupted, retry ${retries}/${MAX_RETRIES}…`);
+                            // Remove incomplete bubble and retry
+                            finalizeStreamingBubble(wrap, false);
+                            wrap = null; hadContent = false;
+                            addTypingIndicator();
+                            await doStream(retrySessionId);
+                            return;
+                        }
+                        throw readErr;
+                    }
+
+                    if (result.done) break;
+
+                    buf += decoder.decode(result.value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop(); // keep incomplete last line
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data:')) continue;
+                        const raw = line.slice(5).trim();
+                        if (!raw) continue;
+
+                        let data;
+                        try { data = JSON.parse(raw); } catch { continue; }
+
+                        if (data.chunk) {
+                            hadContent = true;
+                            bubble.textContent += data.chunk;
+                            scrollBottom();
+                        }
+                        if (data.error) {
+                            finalizeStreamingBubble(wrap, hadContent);
+                            addErrorMessage(data.error);
+                            return;
+                        }
+                        if (data.done) {
+                            return;
+                        }
+                    }
+                }
+            } catch (err) {
+                if (!stopRequested) {
+                    throw err;
+                }
+            }
+        }
+
+        let stopRequested = false;
+        stopBtn.onclick = async () => {
+            stopRequested = true;
+            currentReader?.cancel().catch(() => {});
+            await fetch('/api/chat/abort', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId }),
+            }).catch(() => {});
+        };
+
+        try {
+            await doStream(sessionId);
+        } catch (err) {
+            removeTypingIndicator();
+            if (wrap) finalizeStreamingBubble(wrap, hadContent);
+            if (!stopRequested) {
+                addErrorMessage('网络错误，请检查连接：' + err.message);
+            }
+        } finally {
+            if (wrap) finalizeStreamingBubble(wrap, hadContent);
+            removeTypingIndicator();
+            currentReader = null;
+            setStreaming(false);
+            inputEl.focus();
+        }
+    }
+
+    // ── Event listeners ───────────────────────────────────────────────────────
+
+    sendBtn.addEventListener('click', sendMessage);
+
+    inputEl.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    inputEl.addEventListener('input', () => {
+        inputEl.style.height = 'auto';
+        inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+    });
+
+    newChatBtn.addEventListener('click', () => {
+        if (isStreaming) {
+            stopBtn.click();
+        }
+        sessionId = makeSessionId();
+        chatEl.innerHTML = `<div class="message assistant">
+            <div class="bubble-wrap">
+                <div class="bubble">新对话已开始 🐈 有什么可以帮你的吗？</div>
+            </div>
+        </div>`;
+        inputEl.focus();
+    });
+
+    inputEl.focus();
+</script>
+</body>
+</html>

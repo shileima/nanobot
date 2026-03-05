@@ -245,6 +245,7 @@ def _make_provider(config: Config):
 def gateway(
     port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    no_webchat: bool = typer.Option(False, "--no-webchat", help="Disable the built-in web chat UI"),
 ):
     """Start the nanobot gateway."""
     from nanobot.agent.loop import AgentLoop
@@ -416,7 +417,27 @@ def gateway(
             agent.stop()
             await channels.stop_all()
 
-    asyncio.run(run())
+    # ── Web Chat UI ──────────────────────────────────────────────────────────
+    # Manage the event loop manually so we can pass its reference to webchat
+    # before the loop starts running (run_coroutine_threadsafe needs the loop).
+    if not no_webchat:
+        from nanobot.webchat.server import WEBCHAT_PORT, start_webchat_server
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        start_webchat_server(
+            agent=agent,
+            agent_loop=loop,
+            port=WEBCHAT_PORT,
+            open_browser=True,
+        )
+        console.print(
+            f"[green]✓[/green] Web Chat UI: [link=http://localhost:{WEBCHAT_PORT}]"
+            f"http://localhost:{WEBCHAT_PORT}[/link]"
+        )
+        loop.run_until_complete(run())
+    else:
+        asyncio.run(run())
 
 
 
