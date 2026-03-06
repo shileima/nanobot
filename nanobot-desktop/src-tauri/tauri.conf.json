@@ -32,5 +32,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUwMTk2NDQyQUEyOENBQjMKUldTenlpaXFRbVFaNE5ZQllZcmJXdTUzd1ZCY3dWSGs5NEtNUnZ1ZnM1Q3JPNVJLN1hIVkdoZEIK",
+      "endpoints": [
+        "https://github.com/shileima/nanobot/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { check } from "@tauri-apps/plugin-updater";
 
 const webchatFrame = document.getElementById("webchatFrame");
 const statusBadge = document.getElementById("statusBadge");
@@ -42,38 +43,51 @@ webchatFrame.onerror = () => {
 setTimeout(checkStatus, 2000);
 setInterval(checkStatus, 10000);
 
-// --- Update detection with progressive polling ---
-// First 1 minute: check every 10s (6 times)
-// After that: check every 30 minutes
+// --- Tauri Updater ---
 
 let dismissedVersion = null;
-let updateCheckCount = 0;
-let updateTimer = null;
-const FAST_INTERVAL = 10_000;       // 10s
-const FAST_PHASE_DURATION = 60_000; // 1 min
-const SLOW_INTERVAL = 30 * 60_000;  // 30 min
+let pendingUpdate = null;
+
+const FAST_INTERVAL = 10_000;
+const FAST_PHASE_DURATION = 60_000;
+const SLOW_INTERVAL = 30 * 60_000;
 const appStartTime = Date.now();
 
 async function checkForUpdate() {
-  updateCheckCount++;
   try {
-    const info = await invoke("check_for_update");
-    if (info.current && info.current !== "unknown") {
-      appVersion.textContent = `v${info.current}`;
-    }
-    if (info.has_update && info.latest !== dismissedVersion) {
-      showUpdateBanner(info.current, info.latest);
+    const update = await check();
+    if (update?.available && update.version !== dismissedVersion) {
+      pendingUpdate = update;
+      // 显示当前版本号
+      if (appVersion) {
+        appVersion.textContent = `v${update.currentVersion}`;
+      }
+      showUpdateBanner(update.currentVersion, update.version);
+    } else if (!update?.available && appVersion && !appVersion.textContent) {
+      // 已是最新，仍显示当前版本
+      try {
+        const info = await invoke("check_for_update");
+        if (info.current && info.current !== "unknown") {
+          appVersion.textContent = `v${info.current}`;
+        }
+      } catch {}
     }
   } catch (e) {
-    console.warn("Update check failed:", e);
+    console.warn("Tauri update check failed:", e);
+    // fallback: 用自定义接口获取版本号显示
+    try {
+      const info = await invoke("check_for_update");
+      if (info.current && info.current !== "unknown" && appVersion) {
+        appVersion.textContent = `v${info.current}`;
+      }
+    } catch {}
   }
 }
 
 function scheduleNextCheck() {
   const elapsed = Date.now() - appStartTime;
   const interval = elapsed < FAST_PHASE_DURATION ? FAST_INTERVAL : SLOW_INTERVAL;
-
-  updateTimer = setTimeout(() => {
+  setTimeout(() => {
     checkForUpdate();
     scheduleNextCheck();
   }, interval);
@@ -89,7 +103,7 @@ function hideUpdateBanner() {
   updateBanner.classList.add("hidden");
 }
 
-// Start progressive update checking
+// Start update checking after 3s
 setTimeout(() => {
   checkForUpdate();
   scheduleNextCheck();
@@ -98,41 +112,57 @@ setTimeout(() => {
 // --- Update actions ---
 
 doUpdateBtn.addEventListener("click", async () => {
+  if (!pendingUpdate) return;
+
   doUpdateBtn.disabled = true;
   doUpdateBtn.textContent = "更新中…";
   updateBanner.classList.add("updating");
 
   try {
-    const result = await invoke("perform_update");
-    if (result.success) {
-      updateBanner.style.background = "linear-gradient(90deg, #064e3b 0%, #022c22 100%)";
-      updateBanner.style.borderBottomColor = "rgba(16, 185, 129, 0.3)";
-      updateBanner.classList.remove("updating");
+    // 使用 Tauri 官方 updater 下载并安装整包（含 Rust + 前端 + Python）
+    await pendingUpdate.downloadAndInstall((event) => {
+      switch (event.event) {
+        case "Started":
+          doUpdateBtn.textContent = `下载中 0%`;
+          break;
+        case "Progress": {
+          const { chunkLength, contentLength } = event.data;
+          if (contentLength) {
+            const pct = Math.round((chunkLength / contentLength) * 100);
+            doUpdateBtn.textContent = `下载中 ${pct}%`;
+          }
+          break;
+        }
+        case "Finished":
+          doUpdateBtn.textContent = "安装中…";
+          break;
+      }
+    });
 
-      const textEl = updateBanner.querySelector(".update-text");
-      textEl.innerHTML = '<span class="update-icon" style="color:#10b981">✓</span> 更新成功，重启客户端即可生效';
-      textEl.style.color = "#6ee7b7";
+    // 下载安装成功，显示重启按钮
+    updateBanner.style.background = "linear-gradient(90deg, #064e3b 0%, #022c22 100%)";
+    updateBanner.style.borderBottomColor = "rgba(16, 185, 129, 0.3)";
+    updateBanner.classList.remove("updating");
 
-      doUpdateBtn.textContent = "立即重启";
-      doUpdateBtn.classList.add("restart-btn");
-      doUpdateBtn.disabled = false;
-      doUpdateBtn.onclick = async () => {
-        doUpdateBtn.disabled = true;
-        doUpdateBtn.textContent = "重启中…";
-        await relaunch();
-      };
+    const textEl = updateBanner.querySelector(".update-text");
+    textEl.innerHTML = '<span class="update-icon" style="color:#10b981">✓</span> 更新成功，重启后生效';
+    textEl.style.color = "#6ee7b7";
 
-      dismissUpdateBtn.style.display = "none";
-    } else {
-      doUpdateBtn.textContent = "重试";
-      doUpdateBtn.disabled = false;
-      updateBanner.classList.remove("updating");
-      alert("更新失败：" + result.message);
-    }
+    doUpdateBtn.textContent = "立即重启";
+    doUpdateBtn.classList.add("restart-btn");
+    doUpdateBtn.disabled = false;
+    doUpdateBtn.onclick = async () => {
+      doUpdateBtn.disabled = true;
+      doUpdateBtn.textContent = "重启中…";
+      await relaunch();
+    };
+
+    dismissUpdateBtn.style.display = "none";
   } catch (e) {
     doUpdateBtn.textContent = "重试";
     doUpdateBtn.disabled = false;
     updateBanner.classList.remove("updating");
+    console.error("Update failed:", e);
     alert("更新失败：" + e);
   }
 });
@@ -142,14 +172,15 @@ dismissUpdateBtn.addEventListener("click", () => {
   hideUpdateBanner();
 });
 
-// Legacy manual update button in header
+// --- Manual check button in header ---
 updateBtn.addEventListener("click", async () => {
   updateBtn.disabled = true;
   updateBtn.textContent = "…";
   try {
-    const info = await invoke("check_for_update");
-    if (info.has_update) {
-      showUpdateBanner(info.current, info.latest);
+    const update = await check();
+    if (update?.available) {
+      pendingUpdate = update;
+      showUpdateBanner(update.currentVersion, update.version);
     } else {
       statusBadge.textContent = "已是最新版";
       setTimeout(() => checkStatus(), 3000);
