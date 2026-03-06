@@ -5,8 +5,9 @@
   "identifier": "com.shilei.nanobot-desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:5173",
-    "frontendDist": "../src"
+    "frontendDist": "../src/dist"
   },
   "app": {
     "withGlobalTauri": true,
