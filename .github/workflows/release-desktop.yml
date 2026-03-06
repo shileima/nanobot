@@ -130,6 +130,20 @@ jobs:
           EOF
           cat latest.json
 
+      - name: Prepare release assets (unique filenames)
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          mkdir -p release
+          cp artifacts/nanobot-aarch64-apple-darwin/dmg/*.dmg release/ 2>/dev/null || true
+          cp artifacts/nanobot-x86_64-apple-darwin/dmg/*.dmg release/ 2>/dev/null || true
+          cp latest.json release/
+          # 重命名 .app.tar.gz 避免 aarch64/x86_64 同名冲突
+          cp artifacts/nanobot-aarch64-apple-darwin/macos/nanobot.app.tar.gz release/nanobot_${VERSION}_aarch64.app.tar.gz 2>/dev/null || true
+          cp artifacts/nanobot-aarch64-apple-darwin/macos/nanobot.app.tar.gz.sig release/nanobot_${VERSION}_aarch64.app.tar.gz.sig 2>/dev/null || true
+          cp artifacts/nanobot-x86_64-apple-darwin/macos/nanobot.app.tar.gz release/nanobot_${VERSION}_x86_64.app.tar.gz 2>/dev/null || true
+          cp artifacts/nanobot-x86_64-apple-darwin/macos/nanobot.app.tar.gz.sig release/nanobot_${VERSION}_x86_64.app.tar.gz.sig 2>/dev/null || true
+          ls -la release/
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -145,12 +159,9 @@ jobs:
             ### 更新日志
             详见 [CHANGELOG](https://github.com/shileima/nanobot/blob/main/CHANGELOG.md)
           files: |
-            artifacts/nanobot-aarch64-apple-darwin/dmg/*.dmg
-            artifacts/nanobot-aarch64-apple-darwin/macos/*.app.tar.gz
-            artifacts/nanobot-aarch64-apple-darwin/macos/*.app.tar.gz.sig
-            artifacts/nanobot-x86_64-apple-darwin/dmg/*.dmg
-            artifacts/nanobot-x86_64-apple-darwin/macos/*.app.tar.gz
-            artifacts/nanobot-x86_64-apple-darwin/macos/*.app.tar.gz.sig
-            latest.json
+            release/*.dmg
+            release/*.app.tar.gz
+            release/*.app.tar.gz.sig
+            release/latest.json
           draft: false
           prerelease: false
