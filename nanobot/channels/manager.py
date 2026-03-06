@@ -23,9 +23,10 @@ class ChannelManager:
     - Route outbound messages
     """
 
-    def __init__(self, config: Config, bus: MessageBus):
+    def __init__(self, config: Config, bus: MessageBus, webchat_notifier=None):
         self.config = config
         self.bus = bus
+        self.webchat_notifier = webchat_notifier
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
 
@@ -168,11 +169,11 @@ class ChannelManager:
 
     async def start_all(self) -> None:
         """Start all channels and the outbound dispatcher."""
-        if not self.channels:
+        if not self.channels and not self.webchat_notifier:
             logger.warning("No channels enabled")
             return
 
-        # Start outbound dispatcher
+        # Start outbound dispatcher (needed for webchat push even when no external channels)
         self._dispatch_task = asyncio.create_task(self._dispatch_outbound())
 
         # Start channels
@@ -221,14 +222,21 @@ class ChannelManager:
                     if not msg.metadata.get("_tool_hint") and not self.config.channels.send_progress:
                         continue
 
-                channel = self.channels.get(msg.channel)
-                if channel:
-                    try:
-                        await channel.send(msg)
-                    except Exception as e:
-                        logger.error("Error sending to {}: {}", msg.channel, e)
+                if msg.channel == "webchat" and self.webchat_notifier:
+                    self.webchat_notifier.notify(
+                        chat_id=msg.chat_id,
+                        content=msg.content,
+                        job_name=msg.metadata.get("job_name"),
+                    )
                 else:
-                    logger.warning("Unknown channel: {}", msg.channel)
+                    channel = self.channels.get(msg.channel)
+                    if channel:
+                        try:
+                            await channel.send(msg)
+                        except Exception as e:
+                            logger.error("Error sending to {}: {}", msg.channel, e)
+                    else:
+                        logger.warning("Unknown channel: {}", msg.channel)
 
             except asyncio.TimeoutError:
                 continue
