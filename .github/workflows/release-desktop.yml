@@ -64,16 +64,26 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-        run: pnpm tauri build ${{ matrix.args }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY secret is not set. Add it in repo Settings > Secrets to enable updater artifacts."
+            exit 1
+          fi
+          pnpm tauri build ${{ matrix.args }}
+
+      - name: List build output
+        run: |
+          echo "=== bundle/dmg ==="
+          ls -la nanobot-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/ || true
+          echo "=== bundle/macos ==="
+          ls -la nanobot-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/ || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: nanobot-${{ matrix.target }}
-          path: |
-            nanobot-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-            nanobot-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
-            nanobot-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
+          path: nanobot-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/
+          if-no-files-found: error
 
   publish-release:
     needs: build-and-release
@@ -97,9 +107,9 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
 
-          # 收集各平台签名
-          SIG_AARCH64=$(cat artifacts/nanobot-aarch64-apple-darwin/*.app.tar.gz.sig 2>/dev/null || echo "")
-          SIG_X86=$(cat artifacts/nanobot-x86_64-apple-darwin/*.app.tar.gz.sig 2>/dev/null || echo "")
+          # 收集各平台签名（bundle 目录含 dmg/ 和 macos/ 子目录）
+          SIG_AARCH64=$(cat artifacts/nanobot-aarch64-apple-darwin/macos/*.app.tar.gz.sig 2>/dev/null || echo "")
+          SIG_X86=$(cat artifacts/nanobot-x86_64-apple-darwin/macos/*.app.tar.gz.sig 2>/dev/null || echo "")
 
           cat > latest.json <<EOF
           {
@@ -135,12 +145,12 @@ jobs:
             ### 更新日志
             详见 [CHANGELOG](https://github.com/shileima/nanobot/blob/main/CHANGELOG.md)
           files: |
-            artifacts/nanobot-aarch64-apple-darwin/*.dmg
-            artifacts/nanobot-aarch64-apple-darwin/*.app.tar.gz
-            artifacts/nanobot-aarch64-apple-darwin/*.app.tar.gz.sig
-            artifacts/nanobot-x86_64-apple-darwin/*.dmg
-            artifacts/nanobot-x86_64-apple-darwin/*.app.tar.gz
-            artifacts/nanobot-x86_64-apple-darwin/*.app.tar.gz.sig
+            artifacts/nanobot-aarch64-apple-darwin/dmg/*.dmg
+            artifacts/nanobot-aarch64-apple-darwin/macos/*.app.tar.gz
+            artifacts/nanobot-aarch64-apple-darwin/macos/*.app.tar.gz.sig
+            artifacts/nanobot-x86_64-apple-darwin/dmg/*.dmg
+            artifacts/nanobot-x86_64-apple-darwin/macos/*.app.tar.gz
+            artifacts/nanobot-x86_64-apple-darwin/macos/*.app.tar.gz.sig
             latest.json
           draft: false
           prerelease: false
