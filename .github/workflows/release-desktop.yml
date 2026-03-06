@@ -71,7 +71,7 @@ jobs:
         with:
           name: nanobot-${{ matrix.target }}
           path: |
-            nanobot-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.dmg
+            nanobot-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             nanobot-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
             nanobot-desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
 

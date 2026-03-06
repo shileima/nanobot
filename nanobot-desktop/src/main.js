@@ -12,6 +12,11 @@ const doUpdateBtn = document.getElementById("doUpdateBtn");
 const dismissUpdateBtn = document.getElementById("dismissUpdateBtn");
 const appVersion = document.getElementById("appVersion");
 
+// 始终显示桌面应用版本（来自 package.json），而非 Python 包版本
+if (appVersion && typeof __APP_VERSION__ !== "undefined") {
+  appVersion.textContent = `v${__APP_VERSION__}`;
+}
+
 // --- Connection status ---
 
 async function checkStatus() {
@@ -58,29 +63,10 @@ async function checkForUpdate() {
     const update = await check();
     if (update?.available && update.version !== dismissedVersion) {
       pendingUpdate = update;
-      // 显示当前版本号
-      if (appVersion) {
-        appVersion.textContent = `v${update.currentVersion}`;
-      }
       showUpdateBanner(update.currentVersion, update.version);
-    } else if (!update?.available && appVersion && !appVersion.textContent) {
-      // 已是最新，仍显示当前版本
-      try {
-        const info = await invoke("check_for_update");
-        if (info.current && info.current !== "unknown") {
-          appVersion.textContent = `v${info.current}`;
-        }
-      } catch {}
     }
   } catch (e) {
     console.warn("Tauri update check failed:", e);
-    // fallback: 用自定义接口获取版本号显示
-    try {
-      const info = await invoke("check_for_update");
-      if (info.current && info.current !== "unknown" && appVersion) {
-        appVersion.textContent = `v${info.current}`;
-      }
-    } catch {}
   }
 }
 
