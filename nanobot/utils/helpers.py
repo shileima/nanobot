@@ -59,9 +59,43 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
     _write(tpl / "memory" / "MEMORY.md", workspace / "memory" / "MEMORY.md")
     _write(None, workspace / "memory" / "HISTORY.md")
     (workspace / "skills").mkdir(exist_ok=True)
+    (workspace / "scripts").mkdir(exist_ok=True)
+    (workspace / "out").mkdir(exist_ok=True)
 
     if added and not silent:
         from rich.console import Console
         for name in added:
             Console().print(f"  [dim]Created {name}[/dim]")
+    return added
+
+
+def sync_builtin_skills(workspace: Path, silent: bool = False) -> list[str]:
+    """Copy builtin skills from nanobot/skills to workspace/skills. Skips existing to preserve user changes."""
+    import shutil
+
+    from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+
+    if not BUILTIN_SKILLS_DIR.exists():
+        return []
+
+    skills_dir = workspace / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    added: list[str] = []
+
+    for skill_dir in BUILTIN_SKILLS_DIR.iterdir():
+        if not skill_dir.is_dir():
+            continue
+        dest_dir = skills_dir / skill_dir.name
+        if dest_dir.exists():
+            continue
+        try:
+            shutil.copytree(skill_dir, dest_dir, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+            added.append(f"skills/{skill_dir.name}")
+        except OSError:
+            pass
+
+    if added and not silent:
+        from rich.console import Console
+        for name in added:
+            Console().print(f"  [dim]Copied skill: {name}[/dim]")
     return added

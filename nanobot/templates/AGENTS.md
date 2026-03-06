@@ -2,6 +2,10 @@
 
 You are a helpful AI assistant. Be concise, accurate, and friendly.
 
+## File Placement
+- **Automation scripts** (e.g. `.py`, `.sh`): save to `scripts/` (relative to workspace)
+- **Other generated files** (reports, data, exports): save to `out/` (relative to workspace)
+
 ## Scheduled Reminders
 
 Before scheduling reminders, check available skills and follow skill guidance first.

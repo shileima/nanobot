@@ -31,7 +31,7 @@ from rich.text import Text
 
 from nanobot import __logo__, __version__
 from nanobot.config.schema import Config
-from nanobot.utils.helpers import sync_workspace_templates
+from nanobot.utils.helpers import sync_builtin_skills, sync_workspace_templates
 
 app = typer.Typer(
     name="nanobot",
@@ -198,6 +198,7 @@ def onboard():
         console.print(f"[green]✓[/green] Created workspace at {workspace}")
 
     sync_workspace_templates(workspace)
+    sync_builtin_skills(workspace)
 
     console.print(f"\n{__logo__} nanobot is ready!")
     console.print("\nNext steps:")
@@ -260,6 +261,10 @@ def gateway(
     config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     no_webchat: bool = typer.Option(False, "--no-webchat", help="Disable the built-in web chat UI"),
+    no_open_browser: bool = typer.Option(
+        False, "--no-open-browser",
+        help="Do not auto-open browser when webchat starts (e.g. when running from desktop client)",
+    ),
 ):
     """Start the nanobot gateway."""
     from nanobot.agent.loop import AgentLoop
@@ -282,6 +287,7 @@ def gateway(
 
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
     sync_workspace_templates(config.workspace_path)
+    sync_builtin_skills(config.workspace_path, silent=True)
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
@@ -312,7 +318,11 @@ def gateway(
         channels_config=config.channels,
     )
 
-    # Set cron callback (needs agent)
+    # Create webchat notifier first (needed by cron callback for direct push)
+    from nanobot.webchat.notifier import WebchatNotifier
+    webchat_notifier = WebchatNotifier()
+
+    # Set cron callback (needs agent, webchat_notifier)
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
         from nanobot.agent.tools.cron import CronTool
@@ -344,17 +354,28 @@ def gateway(
             return response
 
         if job.payload.deliver and job.payload.to and response:
-            from nanobot.bus.events import OutboundMessage
-            await bus.publish_outbound(OutboundMessage(
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to,
-                content=response
-            ))
+            channel = job.payload.channel or "cli"
+            chat_id = job.payload.to
+            if channel == "webchat" and webchat_notifier:
+                # Direct push to webchat - ensures frontend receives scheduled task reminder
+                webchat_notifier.notify(
+                    chat_id=chat_id,
+                    content=response,
+                    job_name=job.name,
+                )
+            else:
+                from nanobot.bus.events import OutboundMessage
+                await bus.publish_outbound(OutboundMessage(
+                    channel=channel,
+                    chat_id=chat_id,
+                    content=response,
+                    metadata={"job_name": job.name},
+                ))
         return response
     cron.on_job = on_cron_job
 
     # Create channel manager
-    channels = ChannelManager(config, bus)
+    channels = ChannelManager(config, bus, webchat_notifier=webchat_notifier)
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""
@@ -447,7 +468,8 @@ def gateway(
             agent=agent,
             agent_loop=loop,
             port=WEBCHAT_PORT,
-            open_browser=True,
+            open_browser=not no_open_browser,
+            webchat_notifier=webchat_notifier,
         )
         console.print(
             f"[green]✓[/green] Web Chat UI: [link=http://localhost:{WEBCHAT_PORT}]"
@@ -482,6 +504,7 @@ def agent(
 
     config = load_config()
     sync_workspace_templates(config.workspace_path)
+    sync_builtin_skills(config.workspace_path, silent=True)
 
     bus = MessageBus()
     provider = _make_provider(config)
@@ -828,6 +851,39 @@ def channels_login():
         console.print(f"[red]Bridge failed: {e}[/red]")
     except FileNotFoundError:
         console.print("[red]npm not found. Please install Node.js.[/red]")
+
+
+# ============================================================================
+# Update Command
+# ============================================================================
+
+
+@app.command()
+def update():
+    """Update nanobot to the latest version from PyPI."""
+    import subprocess
+    import sys
+
+    console.print(f"{__logo__} Updating nanobot...")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-U", "nanobot-ai"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0:
+            out = result.stdout.strip() or result.stderr.strip()
+            if "Successfully installed" in out or "Requirement already satisfied" in out:
+                console.print("[green]✓[/green] nanobot is up to date.")
+            else:
+                console.print(out)
+        else:
+            console.print(f"[red]Update failed:[/red] {result.stderr}")
+    except subprocess.TimeoutExpired:
+        console.print("[red]Update timed out. Please try again.[/red]")
+    except Exception as e:
+        console.print(f"[red]Update failed:[/red] {e}")
 
 
 # ============================================================================

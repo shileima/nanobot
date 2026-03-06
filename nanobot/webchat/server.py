@@ -20,6 +20,7 @@ WEBCHAT_PORT = 17798
 def _build_app(
     agent: "AgentLoop",
     agent_loop: asyncio.AbstractEventLoop,
+    webchat_notifier=None,
 ):
     """Create and configure the Flask application backed by a live AgentLoop."""
     try:
@@ -32,23 +33,55 @@ def _build_app(
 
     template_dir = Path(__file__).parent / "templates"
     app = Flask(__name__, template_folder=str(template_dir))
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
+    app.jinja_env.auto_reload = True
+    app.jinja_env.bytecode_cache = None
 
     # session_id -> concurrent.futures.Future (from run_coroutine_threadsafe)
     active_tasks: dict[str, "asyncio.Future"] = {}
 
+    async def _generate_title(user_message: str) -> str | None:
+        """Call LLM to generate a concise session title (≤10 chars) from the first user message."""
+        try:
+            prompt = (
+                "请根据以下用户消息，生成一个简洁的会话标题，要求：\n"
+                "1. 准确概括用户意图\n"
+                "2. 不超过10个汉字或英文单词\n"
+                "3. 只返回标题文本，不要加引号或多余说明\n\n"
+                f"用户消息：{user_message[:200]}"
+            )
+            response = await agent.provider.chat(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=50,
+                temperature=0.3,
+            )
+            title = (response.content or "").strip().strip('"\'「」【】').strip()
+            return title[:20] if title else None
+        except Exception:  # noqa: BLE001
+            return None
+
     @app.route("/")
     def index():
-        return render_template("index.html")
+        from flask import make_response
+        resp = make_response(render_template("index.html"))
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
 
     @app.route("/api/chat/stream", methods=["POST"])
     def chat_stream():
         """SSE streaming endpoint — streams tokens as they arrive from the agent."""
+        from loguru import logger
+
         data = request.get_json(force=True)
         message = (data.get("message") or "").strip()
         session_id = data.get("session_id") or f"web:{uuid.uuid4().hex[:8]}"
 
         if not message:
             return jsonify({"error": "消息不能为空"}), 400
+
+        logger.info("webchat session={} message_len={}", session_id, len(message))
 
         # Synchronous queue bridges asyncio callbacks → Flask generator thread.
         q: queue.Queue = queue.Queue()
@@ -65,7 +98,13 @@ def _build_app(
                     return
                 payload = {"content": content, "tool_hint": tool_hint}
                 if full_content:
-                    payload["full_content"] = full_content
+                    _MAX_FULL = 100_000
+                    if len(full_content) > _MAX_FULL:
+                        payload["full_content"] = full_content[:_MAX_FULL]
+                        payload["full_content_truncated"] = True
+                        payload["full_content_total_len"] = len(full_content)
+                    else:
+                        payload["full_content"] = full_content
                 q.put(("progress", payload))
 
             try:
@@ -80,9 +119,22 @@ def _build_app(
             except asyncio.CancelledError:
                 pass
             except Exception as exc:  # noqa: BLE001
+                logger.exception("webchat session={} error: {}", session_id, exc)
                 q.put(("error", str(exc)))
             finally:
                 q.put(("done", None))
+
+            # Generate session title after the first user message (fire-and-forget)
+            try:
+                session = agent.sessions.get_or_create(session_id)
+                if not session.metadata.get("title"):
+                    title = await _generate_title(message)
+                    if title:
+                        session.metadata["title"] = title
+                        agent.sessions.save(session)
+                        q.put(("title", title))
+            except Exception:  # noqa: BLE001
+                pass
 
         future = asyncio.run_coroutine_threadsafe(run(), agent_loop)
         active_tasks[session_id] = future
@@ -113,6 +165,8 @@ def _build_app(
                         yield f"data: {json.dumps({'chunk': payload, 'session_id': session_id})}\n\n"
                     elif kind == "progress":
                         yield f"data: {json.dumps({'progress': payload, 'session_id': session_id})}\n\n"
+                    elif kind == "title":
+                        yield f"data: {json.dumps({'title': payload, 'session_id': session_id})}\n\n"
                     elif kind == "done":
                         yield f"data: {json.dumps({'done': True, 'session_id': session_id})}\n\n"
                         break
@@ -142,27 +196,96 @@ def _build_app(
             fut.cancel()
         return jsonify({"aborted": bool(fut), "session_id": session_id})
 
-    @app.route("/api/sessions/<session_id>")
-    def get_session(session_id: str):
-        """Return persisted conversation history for a session."""
+    @app.route("/api/sessions")
+    def list_sessions():
+        """List all webchat sessions (web:*) for multi-session support."""
         try:
-            session = agent.sessions.get_or_create(session_id)
-            history = [
+            all_sessions = agent.sessions.list_sessions()
+            web_sessions = [
                 {
-                    "role": m.get("role"),
-                    "content": m.get("content"),
-                    "timestamp": m.get("timestamp"),
+                    "id": s["key"],
+                    "created_at": s.get("created_at"),
+                    "updated_at": s.get("updated_at") or s.get("created_at"),
+                    "title": s.get("title"),
                 }
-                for m in session.get_history(max_messages=200)
-                if m.get("role") in ("user", "assistant")
+                for s in all_sessions
+                if s.get("key", "").startswith("web:")
             ]
+            return jsonify({"sessions": web_sessions})
         except Exception:  # noqa: BLE001
-            history = []
-        return jsonify({"history": history, "session_id": session_id})
+            return jsonify({"sessions": []})
+
+    @app.route("/api/sessions/<session_id>", methods=["GET", "DELETE"])
+    def session_detail(session_id: str):
+        if request.method == "GET":
+            """Return persisted conversation history for a session."""
+            try:
+                session = agent.sessions.get_or_create(session_id)
+                history = [
+                    {
+                        "role": m.get("role"),
+                        "content": m.get("content"),
+                        "timestamp": m.get("timestamp"),
+                    }
+                    for m in session.get_history(max_messages=200)
+                    if m.get("role") in ("user", "assistant")
+                ]
+                return jsonify({"history": history, "session_id": session_id})
+            except Exception:  # noqa: BLE001
+                return jsonify({"history": [], "session_id": session_id})
+        else:
+            """Delete a session."""
+            if not session_id.startswith("web:"):
+                return jsonify({"error": "Can only delete webchat sessions"}), 400
+            try:
+                deleted = agent.sessions.delete_session(session_id)
+                return jsonify({"deleted": deleted, "session_id": session_id})
+            except Exception as e:  # noqa: BLE001
+                return jsonify({"error": str(e), "deleted": False}), 500
 
     @app.route("/api/health")
     def health():
         return jsonify({"status": "ok", "mode": "agent-direct"})
+
+    @app.route("/api/dev/version")
+    def dev_version():
+        """Return template file mtime for hot-reload polling."""
+        try:
+            mtime = (template_dir / "index.html").stat().st_mtime
+            return jsonify({"mtime": mtime})
+        except Exception:  # noqa: BLE001
+            return jsonify({"mtime": 0})
+
+    # SSE endpoint for server-pushed events (e.g. scheduled task notifications)
+    if webchat_notifier is not None:
+
+        @app.route("/api/events")
+        def events():
+            """SSE stream for scheduled tasks and other server-pushed notifications."""
+            def generate():
+                q = None
+                try:
+                    q = webchat_notifier.subscribe()
+                    while True:
+                        try:
+                            event = q.get(timeout=30)
+                        except queue.Empty:
+                            yield ": keep-alive\n\n"
+                            continue
+                        yield f"data: {json.dumps(event)}\n\n"
+                finally:
+                    if q is not None:
+                        webchat_notifier.unsubscribe(q)
+
+            return Response(
+                stream_with_context(generate()),
+                mimetype="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
 
     return app
 
@@ -176,6 +299,7 @@ def start_webchat_server(
     port: int = WEBCHAT_PORT,
     *,
     open_browser: bool = True,
+    webchat_notifier=None,
 ) -> threading.Thread:
     """Start the web chat server in a background daemon thread.
 
@@ -186,7 +310,7 @@ def start_webchat_server(
     Returns the thread so callers can join / inspect it if needed.
     """
     if agent is not None and agent_loop is not None:
-        app = _build_app(agent, agent_loop)
+        app = _build_app(agent, agent_loop, webchat_notifier=webchat_notifier)
     else:
         app = _build_legacy_app(nanobot_path, workspace)
 
@@ -238,6 +362,8 @@ def _build_legacy_app(nanobot_path: str | None, workspace: str | None):
 
     template_dir = Path(__file__).parent / "templates"
     app = Flask(__name__, template_folder=str(template_dir))
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
+    app.jinja_env.auto_reload = True
     sessions: dict[str, list[dict]] = {}
 
     def _call_nanobot(message: str, session_id: str) -> str:

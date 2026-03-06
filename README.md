@@ -162,6 +162,19 @@ nanobot agent
 
 That's it! You have a working AI assistant in 2 minutes.
 
+## 🖥️ Desktop Client (Tauri)
+
+基于 Tauri 的桌面客户端，将 Web Chat 嵌入本地窗口，自动管理 nanobot 服务。
+
+```bash
+cd nanobot-desktop
+pnpm install
+pnpm run tauri dev    # 开发
+pnpm run tauri build # 打包
+```
+
+详见 [nanobot-desktop/README.md](nanobot-desktop/README.md)。
+
 ## 💬 Chat Apps
 
 Connect nanobot to your favorite chat platform.

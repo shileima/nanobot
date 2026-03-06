@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="frame-src http://localhost:17798 http://127.0.0.1:17798;" />
+    <title>🐈 nanobot</title>
+    <script type="module" src="/main.js" defer></script>
+  </head>
+
+  <body>
+    <div class="app-wrapper">
+      <header class="app-header" data-tauri-drag-region>
+        <span class="logo">🐈 nanobot</span>
+        <div class="header-actions">
+          <button id="updateBtn" class="btn-icon" title="更新 nanobot">↻</button>
+          <span id="statusBadge" class="status-badge">正在连接...</span>
+        </div>
+      </header>
+      <main class="app-main">
+        <iframe
+          id="webchatFrame"
+          src="http://localhost:17798"
+          title="Web Chat"
+        ></iframe>
+      </main>
+    </div>
+  </body>
+</html>

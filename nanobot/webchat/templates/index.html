@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🐈 nanobot Web Chat</title>
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>🐈 Web Chat</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -39,6 +42,104 @@
             flex-shrink: 0;
         }
         .chat-header h1 { font-size: 18px; font-weight: 700; flex: 1; }
+        .session-select-wrap { position: relative; }
+        .session-select-btn {
+            background: rgba(255,255,255,.18);
+            border: 1px solid rgba(255,255,255,.35);
+            color: #fff;
+            padding: 5px 13px;
+            border-radius: 14px;
+            font-size: 12.5px;
+            cursor: pointer;
+            min-width: 100px;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        @keyframes slideInRight {
+            from { opacity: 0; transform: translateX(30px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes slideOutRight {
+            from { opacity: 1; transform: translateX(0); }
+            to   { opacity: 0; transform: translateX(30px); }
+        }
+        .session-dropdown {
+            display: none;
+            position: fixed;
+            margin-top: 6px;
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 8px 32px rgba(102,126,234,.18), 0 2px 12px rgba(0,0,0,.10);
+            max-height: 360px;
+            overflow-y: auto;
+            z-index: 1000;
+            min-width: 180px;
+            transform-origin: top right;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(150,150,170,.35) transparent;
+        }
+        .session-dropdown::-webkit-scrollbar { width: 4px; }
+        .session-dropdown::-webkit-scrollbar-track { background: transparent; }
+        .session-dropdown::-webkit-scrollbar-thumb {
+            background: rgba(150,150,170,.35);
+            border-radius: 4px;
+        }
+        .session-dropdown::-webkit-scrollbar-thumb:hover {
+            background: rgba(102,126,234,.5);
+        }
+        .session-dropdown.open {
+            display: block;
+            animation: slideInRight .22s cubic-bezier(.25,.8,.25,1) forwards;
+        }
+        .session-dropdown.closing {
+            display: block;
+            animation: slideOutRight .18s cubic-bezier(.25,.8,.25,1) forwards;
+        }
+        .session-item {
+            padding: 10px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            color: #333;
+            font-size: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background .15s ease;
+        }
+        .session-item:last-child { border-bottom: none; }
+        .session-item:hover { background: #f8f9fc; }
+        .session-item.active { background: rgba(102,126,234,.1); }
+        .session-item .session-item-main {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .session-item .session-item-name {
+            font-weight: 500;
+            color: #333;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex-shrink: 1;
+        }
+        .session-item .session-item-time {
+            flex-shrink: 0;
+            font-size: 12px;
+            color: #666;
+            white-space: nowrap;
+        }
+        .session-item .del-btn {
+            background: none; border: none; color: #bbb;
+            cursor: pointer; padding: 4px 6px; font-size: 13px;
+            opacity: 0.7;
+            flex-shrink: 0;
+        }
+        .session-item .del-btn:hover { color: #e53e3e; opacity: 1; }
         .status-dot {
             width: 9px; height: 9px; border-radius: 50%;
             background: #4ade80;
@@ -124,6 +225,31 @@
         .typing-bubble span:nth-child(3) { animation-delay: .30s; }
         @keyframes bounce { 0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)} }
 
+        /* thinking indicator */
+        .thinking-bubble {
+            display: flex; align-items: center; gap: 8px;
+            background: #f7f8fc; border: 1px dashed #d0d3e8;
+            border-radius: 18px; border-bottom-left-radius: 4px;
+            padding: 9px 14px;
+            box-shadow: 0 1px 4px rgba(0,0,0,.04);
+            font-size: 13px; color: #888;
+        }
+        .thinking-bubble .thinking-dots {
+            display: flex; align-items: center; gap: 3px;
+        }
+        .thinking-bubble .thinking-dots span {
+            width: 5px; height: 5px; border-radius: 50%;
+            background: #a0aec0;
+            animation: think-bounce 1.4s ease-in-out infinite;
+            display: inline-block;
+        }
+        .thinking-bubble .thinking-dots span:nth-child(2) { animation-delay: .2s; }
+        .thinking-bubble .thinking-dots span:nth-child(3) { animation-delay: .4s; }
+        @keyframes think-bounce {
+            0%,60%,100% { transform: translateY(0); opacity: .5; }
+            30% { transform: translateY(-5px); opacity: 1; }
+        }
+
         /* tool hint pill */
         .tool-hint {
             font-size: 12px; color: #888;
@@ -140,7 +266,7 @@
             border-radius: 12px;
             padding: 7px 13px;
             margin: 2px 0 4px;
-            display: flex; align-items: flex-start; gap: 7px;
+            display: flex; align-items: center; gap: 7px;
             position: relative;
         }
         .progress-bubble.active {
@@ -171,13 +297,26 @@
         #progressWrap .bubble-wrap { max-width: 96%; }
         .progress-bubble .progress-icon {
             flex-shrink: 0; line-height: 1.6;
-            display: inline-block;
-            transition: filter .3s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px; height: 18px;
+            transition: filter .3s, opacity .3s;
         }
-        .progress-bubble.active .progress-icon {
-            animation: spin 1.2s linear infinite;
-            filter: drop-shadow(0 0 4px rgba(102,126,234,.6));
+        .progress-bubble .progress-icon.loading-spinner {
+            color: #a0aec0;
         }
+        .progress-bubble .progress-icon.loading-spinner svg {
+            width: 100%; height: 100%;
+        }
+        .progress-bubble.active .progress-icon.loading-spinner svg {
+            transform-origin: center;
+            animation: spin 0.9s linear infinite;
+        }
+        .progress-bubble.active .progress-icon.loading-spinner {
+            color: #667eea;
+        }
+        /* 仅 loading-spinner 旋转，完成后的齿轮图标保持静态 */
         .progress-bubble:not(.active) .progress-icon {
             opacity: .55;
         }
@@ -187,7 +326,7 @@
         }
         .progress-bubble .progress-text {
             flex: 1; min-width: 0;
-            word-break: break-all;
+            overflow-wrap: anywhere;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -195,7 +334,7 @@
         }
         .progress-bubble .progress-full {
             display: none;
-            word-break: break-all;
+            overflow-wrap: anywhere;
             white-space: normal;
         }
         .progress-bubble.expanded .progress-text {
@@ -205,6 +344,9 @@
         }
         .progress-bubble.expanded .progress-full { display: inline; }
         .progress-bubble.expanded .progress-short { display: none; }
+        .progress-bubble.expanded { align-items: flex-start; }
+        .progress-bubble.expanded .progress-icon { margin-top: 1px; }
+        .progress-bubble.expanded .expand-btn { align-self: flex-start; margin-top: 1px; }
         .expand-btn {
             background: none; border: none; color: #667eea;
             font-size: 11.5px; cursor: pointer; padding: 0;
@@ -212,6 +354,39 @@
             flex-shrink: 0; align-self: center; line-height: 1.6;
         }
         .expand-btn:hover { text-decoration: underline; }
+
+        .progress-truncate-notice {
+            display: inline-block;
+            margin-top: 6px;
+            font-size: 11px;
+            color: #e07b39;
+            background: #fff5ee;
+            border: 1px solid #fdd9c0;
+            border-radius: 6px;
+            padding: 2px 8px;
+        }
+
+        /* thinking node between tool calls */
+        .progress-bubble.progress-thinking {
+            color: #a0aec0;
+            font-style: italic;
+            background: transparent;
+            border: none;
+            padding: 3px 13px;
+            margin: 0;
+            gap: 6px;
+        }
+        .progress-bubble.progress-thinking .progress-icon {
+            font-style: normal;
+            opacity: .7;
+        }
+        .progress-bubble.progress-thinking .thinking-inline-text {
+            animation: thinking-fade 1.6s ease-in-out infinite;
+        }
+        @keyframes thinking-fade {
+            0%,100% { opacity: .5; }
+            50% { opacity: 1; }
+        }
 
         .chat-input-area {
             padding: 14px 18px;
@@ -288,6 +463,68 @@
             border-color: #fed7d7;
         }
 
+        /* scheduled task toast */
+        .scheduled-toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            max-width: 400px;
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 8px 32px rgba(102,126,234,.25), 0 2px 12px rgba(0,0,0,.08);
+            border: 1px solid rgba(102,126,234,.2);
+            padding: 16px 18px;
+            z-index: 9999;
+            animation: toastSlideIn .35s ease;
+            overflow: hidden;
+        }
+        .scheduled-toast.toast-out {
+            animation: toastSlideOut .3s ease forwards;
+        }
+        @keyframes toastSlideIn {
+            from { opacity: 0; transform: translateX(120%); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes toastSlideOut {
+            from { opacity: 1; transform: translateX(0); }
+            to { opacity: 0; transform: translateX(120%); }
+        }
+        .scheduled-toast .toast-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #5a67d8;
+        }
+        .scheduled-toast .toast-header::before {
+            content: "⏰";
+            font-size: 18px;
+        }
+        .scheduled-toast .toast-body {
+            font-size: 13px;
+            color: #4a5568;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .scheduled-toast .toast-close {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: none;
+            border: none;
+            color: #a0aec0;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        .scheduled-toast .toast-close:hover { color: #718096; }
+
         /* cursor blink for streaming */
         .streaming-cursor:not(:empty)::after {
             content: "▋";
@@ -312,7 +549,13 @@
 <div class="chat-container">
     <div class="chat-header">
         <div class="status-dot"></div>
-        <h1>🐈 nanobot Web Chat</h1>
+        <h1>🐈 Web Chat</h1>
+        <div class="session-select-wrap">
+            <button class="session-select-btn" id="sessionSelectBtn">会话</button>
+            <div class="session-dropdown" id="sessionDropdown">
+                <div class="session-list" id="sessionList"></div>
+            </div>
+        </div>
         <button class="header-btn" id="newChatBtn">新对话</button>
     </div>
 
@@ -340,8 +583,152 @@
     const newChatBtn = document.getElementById('newChatBtn');
 
     let sessionId = makeSessionId();
-    let currentReader = null;   // active ReadableStream reader
+    let currentReader = null;
     let isStreaming   = false;
+    let sessionList   = [];  // { id, updated_at }[]
+
+    // ── Session management ───────────────────────────────────────────────────
+
+    async function fetchSessions() {
+        try {
+            const r = await fetch('/api/sessions');
+            const d = await r.json();
+            return d.sessions || [];
+        } catch { return []; }
+    }
+
+    function formatSessionDisplayName(s) {
+        if (s.title && s.title.trim()) return s.title.trim();
+        // Fallback to session id without "web:" prefix
+        if (s.id) return s.id.replace(/^web:/, '');
+        return '未命名会话';
+    }
+
+    function formatFriendlyTime(isoStr) {
+        if (!isoStr) return '—';
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return '—';
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const that = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        const diffDays = Math.floor((today - that) / 86400000);
+        const timeStr = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        if (diffDays === 0) return timeStr;
+        if (diffDays === 1) return '昨天 ' + timeStr;
+        if (diffDays === 2) return '前天 ' + timeStr;
+        if (diffDays < 7) return diffDays + '天前 ' + timeStr;
+        return d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) + ' ' + timeStr;
+    }
+
+    function renderSessionDropdown() {
+        const list = document.getElementById('sessionList');
+        const html = sessionList.length
+            ? sessionList.map(s => {
+                const name = formatSessionDisplayName(s);
+                const rawTime = s.updated_at || s.created_at;
+                const timeStr = formatFriendlyTime(rawTime);
+                const timeTitle = rawTime ? new Date(rawTime).toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+                const isActive = s.id === sessionId;
+                return `<div class="session-item ${isActive?'active':''}" data-id="${s.id}">
+                    <div class="session-item-main">
+                        <span class="session-item-name" title="${name}">${name}</span>
+                        <span class="session-item-time" title="${timeTitle}">${timeStr}</span>
+                    </div>
+                    <button class="del-btn" data-id="${s.id}" onclick="event.stopPropagation();deleteSession('${s.id}')">✕</button>
+                </div>`;
+            }).join('')
+            : '<div class="session-item" style="color:#999;cursor:default">暂无历史会话</div>';
+        list.innerHTML = html;
+    }
+
+    async function loadSessions() {
+        sessionList = await fetchSessions();
+        if (!sessionList.find(s => s.id === sessionId)) {
+            sessionList.unshift({ id: sessionId, updated_at: new Date().toISOString(), title: '新对话' });
+        }
+        renderSessionDropdown();
+    }
+
+    async function switchSession(id) {
+        if (id === sessionId || isStreaming) return;
+        sessionId = id;
+        closeSessionDropdown();
+        const r = await fetch(`/api/sessions/${id}`);
+        const d = await r.json();
+        const history = d.history || [];
+        chatEl.innerHTML = '';
+        if (history.length === 0) {
+            chatEl.innerHTML = `<div class="message assistant"><div class="bubble-wrap"><div class="bubble">已切换会话 🐈 有什么可以帮你的吗？</div></div></div>`;
+        } else {
+            history.forEach(m => {
+                const div = document.createElement('div');
+                div.className = 'message ' + m.role;
+                div.innerHTML = `<div class="bubble-wrap"><div class="bubble">${esc(m.content)}</div><div class="bubble-time">${m.timestamp ? new Date(m.timestamp).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'}) : ''}</div></div>`;
+                chatEl.appendChild(div);
+            });
+        }
+        loadSessions();
+    }
+
+    async function deleteSession(id) {
+        if (id === sessionId) {
+            sessionId = makeSessionId();
+            chatEl.innerHTML = `<div class="message assistant"><div class="bubble-wrap"><div class="bubble">已删除并创建新会话 🐈</div></div></div>`;
+        }
+        await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
+        loadSessions();
+    }
+
+    // ── Session dropdown open/close with animation ───────────────────────────
+    function positionDropdown() {
+        const btn = document.getElementById('sessionSelectBtn');
+        const dd  = document.getElementById('sessionDropdown');
+        const rect = btn.getBoundingClientRect();
+        // 右对齐按钮右边缘，宽度不超过从左边界到按钮右边缘的可用空间（最大300px）
+        const maxW = Math.min(300, rect.right - 8);
+        const left = rect.right - maxW;
+        dd.style.top   = (rect.bottom + 6) + 'px';
+        dd.style.left  = left + 'px';
+        dd.style.width = maxW + 'px';
+    }
+    function closeSessionDropdown() {
+        const dd = document.getElementById('sessionDropdown');
+        if (!dd.classList.contains('open')) return;
+        dd.classList.remove('open');
+        dd.classList.add('closing');
+        dd.addEventListener('animationend', () => {
+            dd.classList.remove('closing');
+            dd.style.display = 'none';
+        }, { once: true });
+    }
+    function openSessionDropdown() {
+        const dd = document.getElementById('sessionDropdown');
+        positionDropdown();
+        dd.style.display = 'block';
+        dd.classList.remove('closing');
+        dd.classList.add('open');
+        loadSessions();
+    }
+    function toggleSessionDropdown() {
+        const dd = document.getElementById('sessionDropdown');
+        if (dd.classList.contains('open')) {
+            closeSessionDropdown();
+        } else {
+            openSessionDropdown();
+        }
+    }
+
+    document.getElementById('sessionSelectBtn').onclick = () => {
+        toggleSessionDropdown();
+    };
+    document.getElementById('sessionList').addEventListener('click', e => {
+        const item = e.target.closest('.session-item[data-id]');
+        if (item) switchSession(item.dataset.id);
+    });
+    document.addEventListener('click', e => {
+        if (!e.target.closest('.session-select-wrap'))
+            closeSessionDropdown();
+    });
 
     // ── Utilities ────────────────────────────────────────────────────────────
 
@@ -395,7 +782,7 @@
     /** Create or update the progress area above the streaming bubble. */
     let progressWrap = null;
 
-    function showProgress(content, isToolHint, fullContent) {
+    function ensureProgressWrap() {
         if (!progressWrap) {
             progressWrap = document.createElement('div');
             progressWrap.className = 'message assistant';
@@ -405,37 +792,77 @@
             if (typing) chatEl.insertBefore(progressWrap, typing);
             else chatEl.appendChild(progressWrap);
         }
-        const bw = progressWrap.querySelector('#progressBubbleWrap');
-        const icon = isToolHint ? '⚙️' : '💭';
+        return progressWrap.querySelector('#progressBubbleWrap');
+    }
+
+    function showThinkingIndicator() {
+        removeTypingIndicator();
+        const bw = ensureProgressWrap();
+        // 移除已有的 thinking 节点，保证只有一个
+        bw.querySelector('.progress-thinking')?.remove();
+        const el = document.createElement('div');
+        el.className = 'progress-bubble progress-thinking';
+        el.innerHTML = `<span class="progress-icon">🤔</span><span class="progress-text thinking-inline-text">思考中...</span>`;
+        bw.appendChild(el);
+        scrollBottom();
+    }
+
+    function removeThinkingIndicator() {
+        progressWrap?.querySelector('.progress-thinking')?.remove();
+    }
+
+    function showProgress(content, isToolHint, fullContent, truncated, totalLen) {
+        // 移除 thinking 节点（新工具调用开始，thinking 让位给工具节点）
+        removeThinkingIndicator();
+        removeTypingIndicator();
+        const bw = ensureProgressWrap();
+        /* 统一使用齿轮图标，不使用 loading 转圈 */
+        const icon = '⚙️';
+        const iconClass = '';
         const item = document.createElement('div');
         item.className = 'progress-bubble';
 
-        let html = `<span class="progress-icon">${icon}</span>`;
+        let html = `<span class="progress-icon${iconClass}">${icon}</span>`;
         if (fullContent) {
-            html += `<span class="progress-text"><span class="progress-short">${esc(content)}</span><span class="progress-full">${esc(fullContent)}</span></span>`;
-            html += `<button class="expand-btn" onclick="this.parentElement.classList.toggle('expanded');this.textContent=this.parentElement.classList.contains('expanded')?'收起':'更多'">更多</button>`;
+            const truncNotice = truncated
+                ? `<span class="progress-truncate-notice">（内容过大，已截断显示前 ${(100000).toLocaleString()} 字符，原始长度 ${totalLen ? totalLen.toLocaleString() : '?'} 字符）</span>`
+                : '';
+            const btnLabelExpand = truncated ? '查看完整消息' : '更多';
+            html += `<span class="progress-text"><span class="progress-short">${esc(content)}</span><span class="progress-full">${esc(fullContent)}${truncNotice ? '<br>' + truncNotice : ''}</span></span>`;
+            html += `<button class="expand-btn" data-expand="${btnLabelExpand}" onclick="var e=this.parentElement;e.classList.toggle('expanded');this.textContent=e.classList.contains('expanded')?'收起':this.dataset.expand">${btnLabelExpand}</button>`;
         } else {
-            html += `<span class="progress-text">${esc(content)}</span>`;
+            html += `<span class="progress-text"><span class="progress-short">${esc(content)}</span><span class="progress-full">${esc(content)}</span></span>`;
+            html += `<button class="expand-btn" data-expand="展开" onclick="var e=this.parentElement;e.classList.toggle('expanded');this.textContent=e.classList.contains('expanded')?'收起':this.dataset.expand">展开</button>`;
         }
         item.innerHTML = html;
-        // Deactivate previous: remove class and SVG
+        // Deactivate previous active tool bubble
         const prev = bw.querySelector('.progress-bubble.active');
-        if (prev) { prev.classList.remove('active'); prev.querySelector('.dash-border')?.remove(); }
+        if (prev) {
+            prev.classList.remove('active');
+            prev.querySelector('.dash-border')?.remove();
+        }
         item.classList.add('active');
         // Inject SVG dashed border (animated via CSS)
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('class', 'dash-border');
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', '100%');
-        svg.innerHTML = '<rect x="0.6" y="0.6" width="calc(100% - 1.2px)" height="calc(100% - 1.2px)" rx="12" ry="12"/>';
+        svg.innerHTML = '<rect x="0.6" y="0.6" rx="12" ry="12" style="width: calc(100% - 1.2px); height: calc(100% - 1.2px);"/>';
         item.appendChild(svg);
         bw.appendChild(item);
-        // Fix SVG rect size after layout
+        // After adding the tool node, append a new thinking node at the end
+        const thinkNode = document.createElement('div');
+        thinkNode.className = 'progress-bubble progress-thinking';
+        thinkNode.innerHTML = `<span class="progress-icon">🤔</span><span class="progress-text thinking-inline-text">思考中...</span>`;
+        bw.appendChild(thinkNode);
+        // Hide expand-btn if text isn't truncated
         requestAnimationFrame(() => {
-            const r = svg.querySelector('rect');
-            if (r && svg.clientWidth) {
-                r.setAttribute('width', svg.clientWidth - 1.2);
-                r.setAttribute('height', svg.clientHeight - 1.2);
+            if (!fullContent) {
+                const textEl = item.querySelector('.progress-text');
+                const btn = item.querySelector('.expand-btn');
+                if (textEl && btn && textEl.scrollWidth <= textEl.clientWidth) {
+                    btn.style.display = 'none';
+                }
             }
         });
         scrollBottom();
@@ -448,6 +875,8 @@
             active.classList.remove('active');
             active.querySelector('.dash-border')?.remove();
         }
+        // Remove any lingering thinking node
+        progressWrap.querySelector('.progress-thinking')?.remove();
         progressWrap = null;
     }
 
@@ -564,10 +993,11 @@
 
                         if (data.progress) {
                             removeTypingIndicator();
-                            showProgress(data.progress.content, data.progress.tool_hint, data.progress.full_content);
+                            showProgress(data.progress.content, data.progress.tool_hint, data.progress.full_content, data.progress.full_content_truncated, data.progress.full_content_total_len);
                         }
                         if (data.chunk) {
                             removeTypingIndicator();
+                            removeThinkingIndicator();
                             if (!bubble) {
                                 wrap = createStreamingBubble();
                                 bubble = wrap.querySelector('#streamBubble');
@@ -577,8 +1007,14 @@
                             bubble.textContent += data.chunk;
                             scrollBottom();
                         }
+                        if (data.title) {
+                            // Update the session title in the list in real-time
+                            const s = sessionList.find(x => x.id === data.session_id);
+                            if (s) { s.title = data.title; renderSessionDropdown(); }
+                        }
                         if (data.error) {
                             removeTypingIndicator();
+                            removeThinkingIndicator();
                             if (wrap) finalizeStreamingBubble(wrap, hadContent);
                             const msg = data.error === 'timeout'
                                 ? '任务执行超时（超过 10 分钟无响应），请重试或拆分为更小的任务'
@@ -613,6 +1049,7 @@
             await doStream(sessionId);
         } catch (err) {
             removeTypingIndicator();
+            removeThinkingIndicator();
             if (wrap) finalizeStreamingBubble(wrap, hadContent);
             if (!stopRequested) {
                 addErrorMessage('网络错误，请检查连接：' + err.message);
@@ -621,8 +1058,10 @@
             clearProgress();
             if (wrap) finalizeStreamingBubble(wrap, hadContent);
             removeTypingIndicator();
+            removeThinkingIndicator();
             currentReader = null;
             setStreaming(false);
+            loadSessions();
             inputEl.focus();
         }
     }
@@ -653,10 +1092,76 @@
                 <div class="bubble">新对话已开始 🐈 有什么可以帮你的吗？</div>
             </div>
         </div>`;
+        loadSessions();
+        closeSessionDropdown();
         inputEl.focus();
     });
 
+    // ── Scheduled task SSE & toast ────────────────────────────────────────────
+
+    function showScheduledToast(jobName, content) {
+        const wrap = document.createElement('div');
+        wrap.className = 'scheduled-toast';
+        const title = jobName ? `定时任务：${esc(jobName)}` : '定时任务提醒';
+        wrap.innerHTML = `
+            <button class="toast-close" aria-label="关闭">&times;</button>
+            <div class="toast-header">${title}</div>
+            <div class="toast-body">${esc(content)}</div>
+        `;
+        document.body.appendChild(wrap);
+
+        const close = () => {
+            wrap.classList.add('toast-out');
+            setTimeout(() => wrap.remove(), 320);
+        };
+
+        wrap.querySelector('.toast-close').onclick = close;
+        setTimeout(close, 8000);
+    }
+
+    function connectEvents() {
+        try {
+            const es = new EventSource('/api/events');
+            es.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data.type === 'scheduled_task' && data.content) {
+                        showScheduledToast(data.job_name || null, data.content);
+                        if (data.chat_id && data.chat_id === sessionId) {
+                            const wrap = document.createElement('div');
+                            wrap.className = 'message assistant';
+                            wrap.innerHTML = `<div class="bubble-wrap">
+                                <div class="bubble">${esc(data.content)}</div>
+                                <div class="bubble-time">${timeStr()}</div>
+                            </div>`;
+                            chatEl.appendChild(wrap);
+                            scrollBottom();
+                        }
+                    }
+                } catch (_) {}
+            };
+            es.onerror = () => { es.close(); setTimeout(connectEvents, 5000); };
+        } catch (_) {}
+    }
+    connectEvents();
+
+    loadSessions();
     inputEl.focus();
+
+    // Dev hot-reload: poll /api/dev/version every 1.5s, reload on mtime change
+    (function() {
+        let lastMtime = null;
+        async function checkVersion() {
+            try {
+                const res = await fetch('/api/dev/version?_=' + Date.now());
+                if (!res.ok) return;
+                const { mtime } = await res.json();
+                if (lastMtime === null) { lastMtime = mtime; return; }
+                if (mtime !== lastMtime) { location.reload(); }
+            } catch (_) {}
+        }
+        setInterval(checkVersion, 1500);
+    })();
 </script>
 </body>
 </html>

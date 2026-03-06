@@ -3,7 +3,7 @@
 import json
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +91,37 @@ class SessionManager:
         """Legacy global session path (~/.nanobot/sessions/)."""
         safe_key = safe_filename(key.replace(":", "_"))
         return self.legacy_sessions_dir / f"{safe_key}.jsonl"
+
+    def _first_user_message_preview(self, path: Path, first_line: str, max_len: int = 20) -> str | None:
+        """Extract first user message content as display name fallback. Reads up to 50 lines."""
+        try:
+            # Determine whether the first line is metadata so we know the start offset
+            first_is_metadata = False
+            try:
+                first_data = json.loads(first_line)
+                first_is_metadata = first_data.get("_type") == "metadata"
+            except Exception:
+                pass
+
+            with open(path, encoding="utf-8") as f:
+                for i, line in enumerate(f):
+                    if i == 0 and first_is_metadata:
+                        continue  # skip metadata header
+                    if i >= 50:
+                        break
+                    line = line.strip()
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    if data.get("role") == "user":
+                        content = (data.get("content") or "").strip()
+                        if content:
+                            # Remove newlines, collapse spaces
+                            preview = " ".join(content.split())[:max_len]
+                            return preview + ("…" if len(preview) >= max_len else "")
+            return None
+        except Exception:
+            return None
 
     def get_or_create(self, key: str) -> Session:
         """
@@ -182,31 +213,72 @@ class SessionManager:
         """Remove a session from the in-memory cache."""
         self._cache.pop(key, None)
 
+    def delete_session(self, key: str) -> bool:
+        """Delete a session from disk and cache. Returns True if deleted."""
+        self._cache.pop(key, None)
+        path = self._get_session_path(key)
+        if path.exists():
+            try:
+                path.unlink()
+                return True
+            except OSError:
+                return False
+        legacy = self._get_legacy_session_path(key)
+        if legacy.exists():
+            try:
+                legacy.unlink()
+                return True
+            except OSError:
+                return False
+        return False
+
     def list_sessions(self) -> list[dict[str, Any]]:
         """
         List all sessions.
 
         Returns:
-            List of session info dicts.
+            List of session info dicts with key, created_at, updated_at (and path).
         """
         sessions = []
+        # Fallback when metadata has no dates (e.g. legacy files): use file mtime
+        def _mtime_iso(p: Path) -> str | None:
+            try:
+                return datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat()
+            except OSError:
+                return None
 
         for path in self.sessions_dir.glob("*.jsonl"):
             try:
-                # Read just the metadata line
                 with open(path, encoding="utf-8") as f:
                     first_line = f.readline().strip()
-                    if first_line:
-                        data = json.loads(first_line)
-                        if data.get("_type") == "metadata":
-                            key = data.get("key") or path.stem.replace("_", ":", 1)
-                            sessions.append({
-                                "key": key,
-                                "created_at": data.get("created_at"),
-                                "updated_at": data.get("updated_at"),
-                                "path": str(path)
-                            })
+                if not first_line:
+                    continue
+                data = json.loads(first_line)
+                key = path.stem.replace("_", ":", 1)
+                created_at = None
+                updated_at = None
+                title = None
+                if data.get("_type") == "metadata":
+                    key = data.get("key") or key
+                    created_at = data.get("created_at")
+                    updated_at = data.get("updated_at")
+                    title = data.get("metadata", {}).get("title")
+                # Fallback: use first user message as display name when title is missing
+                if not title:
+                    title = self._first_user_message_preview(path, first_line)
+                fallback = _mtime_iso(path)
+                if not updated_at:
+                    updated_at = fallback
+                if not created_at:
+                    created_at = fallback
+                sessions.append({
+                    "key": key,
+                    "created_at": created_at,
+                    "updated_at": updated_at,
+                    "title": title,
+                    "path": str(path),
+                })
             except Exception:
                 continue
 
-        return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)
+        return sorted(sessions, key=lambda x: x.get("updated_at") or "", reverse=True)
