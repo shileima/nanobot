@@ -867,15 +867,18 @@ def update():
     console.print(f"{__logo__} Updating nanobot...")
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-U", "nanobot-ai"],
+            [sys.executable, "-m", "pip", "install", "-U", "nanobot-desktop"],
             capture_output=True,
             text=True,
             timeout=120,
         )
         if result.returncode == 0:
             out = result.stdout.strip() or result.stderr.strip()
-            if "Successfully installed" in out or "Requirement already satisfied" in out:
-                console.print("[green]✓[/green] nanobot is up to date.")
+            if "Successfully installed" in out:
+                console.print("[green]✓[/green] nanobot updated successfully.")
+                console.print(out)
+            elif "Requirement already satisfied" in out:
+                console.print("[green]✓[/green] nanobot is already up to date.")
             else:
                 console.print(out)
         else:

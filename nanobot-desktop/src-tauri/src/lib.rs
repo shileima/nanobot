@@ -229,6 +229,102 @@ fn check_workspace_ready() -> InitResult {
     }
 }
 
+#[derive(serde::Serialize)]
+struct VersionInfo {
+    current: String,
+    latest: String,
+    has_update: bool,
+}
+
+fn get_local_version() -> Option<String> {
+    let output = nanobot_command()
+        .args(["--version"])
+        .output()
+        .ok()?;
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // "🐈 nanobot v0.1.4.post3" → "0.1.4.post3"
+    raw.split('v').last().map(|s| s.trim().to_string())
+}
+
+fn get_pypi_version() -> Option<String> {
+    let resp = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .ok()?
+        .get("https://pypi.org/pypi/nanobot-desktop/json")
+        .send()
+        .ok()?;
+
+    if !resp.status().is_success() {
+        return None;
+    }
+
+    let body: serde_json::Value = resp.json().ok()?;
+    body["info"]["version"].as_str().map(|s| s.to_string())
+}
+
+#[tauri::command]
+fn check_for_update() -> VersionInfo {
+    let current = get_local_version().unwrap_or_else(|| "unknown".to_string());
+    let latest = get_pypi_version().unwrap_or_else(|| current.clone());
+
+    let has_update = current != "unknown" && latest != current;
+
+    log_message("DEBUG", &format!(
+        "Version check: current={}, latest={}, has_update={}",
+        current, latest, has_update
+    ));
+
+    VersionInfo { current, latest, has_update }
+}
+
+#[tauri::command]
+fn perform_update() -> UpdateResult {
+    log_message("INFO", "Performing pip upgrade for nanobot-ai");
+
+    let bin = find_nanobot_bin();
+    let pip_bin = bin.as_ref()
+        .and_then(|b| b.parent())
+        .map(|d| d.join("pip"))
+        .filter(|p| p.exists());
+
+    let result = if let Some(pip) = pip_bin {
+        Command::new(&pip)
+            .args(["install", "--upgrade", "nanobot-desktop"])
+            .env("HOME", dirs::home_dir().unwrap_or_default())
+            .output()
+    } else {
+        nanobot_command()
+            .args(["update"])
+            .output()
+    };
+
+    match result {
+        Ok(o) if o.status.success() => {
+            log_message("INFO", "nanobot-ai upgraded successfully");
+            UpdateResult {
+                success: true,
+                message: "更新成功！请重启客户端以使更新生效。".into(),
+            }
+        }
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            log_message("ERROR", &format!("Upgrade failed: {}", err));
+            UpdateResult {
+                success: false,
+                message: format!("更新失败: {}", err),
+            }
+        }
+        Err(e) => {
+            log_message("ERROR", &format!("Upgrade failed: {}", e));
+            UpdateResult {
+                success: false,
+                message: format!("更新失败: {}", e),
+            }
+        }
+    }
+}
+
 // Wait for webchat port to be listening
 fn wait_for_port(port: u16, max_wait_ms: u64) -> bool {
     let start = std::time::Instant::now();
@@ -301,12 +397,15 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
         .manage(process_state)
         .invoke_handler(tauri::generate_handler![
             init_workspace,
             update_nanobot,
             check_workspace_ready,
             get_nanobot_status,
+            check_for_update,
+            perform_update,
         ])
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::Destroyed = event {

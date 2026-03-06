@@ -29,6 +29,15 @@ html, body {
 .logo {
   font-size: 16px;
   font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.version-label {
+  font-size: 11px;
+  font-weight: 400;
+  color: #6b7280;
 }
 
 .header-actions {
@@ -64,6 +73,104 @@ html, body {
 .status-badge.error {
   color: #f87171;
   background: rgba(248, 113, 113, 0.15);
+}
+
+/* Update banner */
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, #1e3a5f 0%, #0f2744 100%);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.3);
+  flex-shrink: 0;
+  animation: slideDown 0.3s ease-out;
+}
+
+.update-banner.hidden {
+  display: none;
+}
+
+.update-banner.updating {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.update-text {
+  color: #93c5fd;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.update-icon {
+  color: #fbbf24;
+  font-size: 14px;
+}
+
+.update-text strong {
+  color: #fff;
+}
+
+.update-current {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-btn {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  padding: 4px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.update-btn:hover {
+  background: #2563eb;
+}
+
+.update-btn:disabled {
+  background: #475569;
+  cursor: wait;
+}
+
+.update-btn.restart-btn {
+  background: #10b981;
+}
+
+.update-btn.restart-btn:hover {
+  background: #059669;
+}
+
+.update-dismiss {
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.update-dismiss:hover {
+  color: #94a3b8;
 }
 
 .app-main {
